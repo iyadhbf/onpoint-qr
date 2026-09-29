@@ -1,0 +1,6 @@
+__pycache__/
+.venv/
+*.pyc
+ag_consulting.sqlite3
+backups/*.sqlite3
+.env
