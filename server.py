@@ -30,7 +30,7 @@ USERS = {
 ROLE_LEVEL = {"viewer": 1, "sales": 2, "admin": 3}
 CATEGORIES = {"Google", "Google EN", "Instagram", "Facebook", "TikTok", "WiFi"}
 LIFECYCLES = {"stock", "assigned", "delivered_unpaid", "paid", "disabled", "archived"}
-LIFECYCLE_LABELS = {"stock": "En stock", "assigned": "Attribuee", "delivered_unpaid": "Livree, non payee", "paid": "Payee", "disabled": "Desactivee", "archived": "Archivee"}
+LIFECYCLE_LABELS = {"stock": "En stock", "assigned": "Attribuee", "delivered_unpaid": "Livree, non payee", "paid": "Payee", "disabled": "Desactivee", "archived": "Archivee", "free": "En stock", "active": "Payee", "unpaid": "Livree, non payee"}
 
 SEED_PLAQUES = [
     ("28XK", "Google", "Livree, non payee", "16/09/2026", "maison sucre", "https://search.google.com/local/writereview?placeid=demo-28xk", 13, "delivered_unpaid", ""),
@@ -79,13 +79,15 @@ def init_db():
         if "lifecycle" not in columns:
             connection.execute("ALTER TABLE plaques ADD COLUMN lifecycle TEXT NOT NULL DEFAULT 'stock'")
             connection.execute("UPDATE plaques SET lifecycle = CASE WHEN status = 'free' THEN 'stock' WHEN status = 'unpaid' THEN 'delivered_unpaid' WHEN status = 'active' THEN 'paid' ELSE 'stock' END")
+        else:
+            connection.execute("UPDATE plaques SET lifecycle = CASE WHEN lifecycle IN ('free', 'stock') THEN 'stock' WHEN lifecycle IN ('active', 'paid') THEN 'paid' WHEN lifecycle IN ('unpaid', 'delivered_unpaid') THEN 'delivered_unpaid' WHEN lifecycle IN ('assigned', 'disabled', 'archived') THEN lifecycle ELSE 'stock' END")
         scan_columns = {row[1] for row in connection.execute("PRAGMA table_info(scans)")}
         for column in ("user_agent", "referrer", "country", "city"):
             if column not in scan_columns:
                 connection.execute(f"ALTER TABLE scans ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
         if connection.execute("SELECT COUNT(*) FROM plaques").fetchone()[0] == 0:
             now = datetime.now().isoformat(timespec="seconds")
-            connection.executemany("INSERT INTO plaques (code,type,sale,date,client,destination,scans,status,phone,lifecycle,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)", [(*row, "active" if row[7] == "paid" else "unpaid" if row[7] == "delivered_unpaid" else "free", now) for row in SEED_PLAQUES])
+            connection.executemany("INSERT INTO plaques (code,type,sale,date,client,destination,scans,status,phone,lifecycle,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)", [(*row[:7], "active" if row[7] in {"assigned", "paid"} else "unpaid" if row[7] == "delivered_unpaid" else "free", row[8], row[7], now) for row in SEED_PLAQUES])
         if connection.execute("SELECT COUNT(*) FROM orders").fetchone()[0] == 0:
             connection.executemany("INSERT INTO orders (code,name,price,status,date,phone) VALUES (?,?,?,?,?,?)", [(code, name, "148 DT" if index == 5 else "59 DT", "cancelled", date, "56 680 248") for index, (code, name, date) in enumerate(zip(ORDER_CODES, ORDER_NAMES, ["29/09 13:05", "29/09 12:32", "29/09 12:31", "29/09 12:27", "29/09 12:25", "29/09 11:44", "28/09 17:10", "28/09 16:42"]))])
     backup_db("startup")
