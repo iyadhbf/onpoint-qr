@@ -14,23 +14,48 @@ from pathlib import Path
 import qrcode
 from PIL import Image
 from flask import Flask, jsonify, redirect, request, send_file, send_from_directory, session
+from database import USING_POSTGRES, open_database
 
 ROOT = Path(__file__).parent
 DB_PATH = ROOT / "ag_consulting.sqlite3"
 BACKUP_DIR = ROOT / "backups"
 app = Flask(__name__, static_folder=str(ROOT), static_url_path="")
 app.secret_key = os.environ.get("ONPOINT_SECRET_KEY", secrets.token_hex(32))
-app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax")
+app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax", SESSION_COOKIE_SECURE=bool(os.environ.get("RENDER") or os.environ.get("DATABASE_URL")))
+RATE_BUCKET = {}
 
 USERS = {
-    "admin": {"password": "onpoint-admin", "role": "admin", "label": "Administrateur"},
-    "sales": {"password": "onpoint-sales", "role": "sales", "label": "Ventes"},
-    "viewer": {"password": "onpoint-viewer", "role": "viewer", "label": "Lecture seule"},
+    "admin": {"password": os.environ.get("ONPOINT_ADMIN_PASSWORD", "onpoint-admin"), "role": "admin", "label": "Administrateur"},
+    "sales": {"password": os.environ.get("ONPOINT_SALES_PASSWORD", "onpoint-sales"), "role": "sales", "label": "Ventes"},
+    "viewer": {"password": os.environ.get("ONPOINT_VIEWER_PASSWORD", "onpoint-viewer"), "role": "viewer", "label": "Lecture seule"},
 }
 ROLE_LEVEL = {"viewer": 1, "sales": 2, "admin": 3}
 CATEGORIES = {"Google", "Google EN", "Instagram", "Facebook", "TikTok", "WiFi"}
 LIFECYCLES = {"stock", "assigned", "delivered_unpaid", "paid", "disabled", "archived"}
 LIFECYCLE_LABELS = {"stock": "En stock", "assigned": "Attribuee", "delivered_unpaid": "Livree, non payee", "paid": "Payee", "disabled": "Desactivee", "archived": "Archivee", "free": "En stock", "active": "Payee", "unpaid": "Livree, non payee"}
+
+
+@app.before_request
+def security_gate():
+    if request.path.startswith("/api/") and request.method in {"POST", "PATCH", "PUT", "DELETE"}:
+        now = datetime.now().timestamp()
+        address = request.remote_addr or "unknown"
+        recent = [stamp for stamp in RATE_BUCKET.get(address, []) if now - stamp < 60]
+        if len(recent) >= 60:
+            return jsonify({"error": "Trop de requêtes. Réessayez dans une minute."}), 429
+        RATE_BUCKET[address] = recent + [now]
+        if request.path not in {"/api/login"} and session.get("username") and request.headers.get("X-CSRF-Token") != session.get("csrf_token"):
+            return jsonify({"error": "Jeton CSRF invalide."}), 403
+
+
+@app.after_request
+def security_headers(response):
+    response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'")
+    return response
 
 SEED_PLAQUES = [
     ("28XK", "Google", "Livree, non payee", "16/09/2026", "maison sucre", "https://search.google.com/local/writereview?placeid=demo-28xk", 13, "delivered_unpaid", ""),
@@ -51,44 +76,67 @@ ORDER_CODES = ["CMD-LFNV4", "CMD-SWVNN", "CMD-TLTPT", "CMD-F24MH", "CMD-KDFVS", 
 
 
 def db():
+    if USING_POSTGRES:
+        return open_database()
     connection = sqlite3.connect(DB_PATH)
     connection.row_factory = sqlite3.Row
     return connection
 
 
 def backup_db(reason="manual"):
-    if not DB_PATH.exists():
-        return None
-    BACKUP_DIR.mkdir(exist_ok=True)
-    target = BACKUP_DIR / f"ag_consulting_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{reason}.sqlite3"
-    shutil.copy2(DB_PATH, target)
-    backups = sorted(BACKUP_DIR.glob("*.sqlite3"), key=lambda path: path.stat().st_mtime, reverse=True)
-    for old in backups[20:]:
-        old.unlink(missing_ok=True)
-    return target.name
+    target = None
+    if DB_PATH.exists():
+        BACKUP_DIR.mkdir(exist_ok=True)
+        target = BACKUP_DIR / f"ag_consulting_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{reason}.sqlite3"
+        shutil.copy2(DB_PATH, target)
+        backups = sorted(BACKUP_DIR.glob("*.sqlite3"), key=lambda path: path.stat().st_mtime, reverse=True)
+        for old in backups[20:]:
+            old.unlink(missing_ok=True)
+    bucket = os.environ.get("BACKUP_BUCKET")
+    if bucket:
+        try:
+            import boto3
+            with db() as connection:
+                payload = {"created_at": datetime.now().isoformat(timespec="seconds"), "reason": reason, "plaques": [dict(row) for row in connection.execute("SELECT * FROM plaques").fetchall()], "orders": [dict(row) for row in connection.execute("SELECT * FROM orders").fetchall()], "scans": [dict(row) for row in connection.execute("SELECT * FROM scans").fetchall()]}
+            client = boto3.client("s3", endpoint_url=os.environ.get("BACKUP_ENDPOINT_URL"), region_name=os.environ.get("BACKUP_REGION", "auto"))
+            key = f"onpoint/{datetime.now().strftime('%Y/%m/%d/%H%M%S')}_{reason}.json"
+            client.put_object(Bucket=bucket, Key=key, Body=json.dumps(payload, ensure_ascii=False).encode(), ContentType="application/json")
+            return key
+        except Exception:
+            app.logger.exception("External backup failed")
+    return target.name if target else None
 
 
 def init_db():
     with db() as connection:
-        connection.executescript("""
-            CREATE TABLE IF NOT EXISTS plaques (code TEXT PRIMARY KEY, type TEXT NOT NULL, sale TEXT NOT NULL, date TEXT NOT NULL, client TEXT NOT NULL DEFAULT '', destination TEXT NOT NULL DEFAULT '', scans INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'free', phone TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS orders (code TEXT PRIMARY KEY, name TEXT NOT NULL, price TEXT NOT NULL, status TEXT NOT NULL, date TEXT NOT NULL, phone TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS scans (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL, scanned_at TEXT NOT NULL, user_agent TEXT NOT NULL DEFAULT '', referrer TEXT NOT NULL DEFAULT '', country TEXT NOT NULL DEFAULT '', city TEXT NOT NULL DEFAULT '');
-        """)
-        columns = {row[1] for row in connection.execute("PRAGMA table_info(plaques)")}
+        if USING_POSTGRES:
+            connection.executescript("""
+                CREATE TABLE IF NOT EXISTS plaques (code TEXT PRIMARY KEY, type TEXT NOT NULL, sale TEXT NOT NULL, date TEXT NOT NULL, client TEXT NOT NULL DEFAULT '', destination TEXT NOT NULL DEFAULT '', scans INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'free', phone TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, lifecycle TEXT NOT NULL DEFAULT 'stock');
+                CREATE TABLE IF NOT EXISTS orders (code TEXT PRIMARY KEY, name TEXT NOT NULL, price TEXT NOT NULL, status TEXT NOT NULL, date TEXT NOT NULL, phone TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS scans (id BIGSERIAL PRIMARY KEY, code TEXT NOT NULL, scanned_at TEXT NOT NULL, user_agent TEXT NOT NULL DEFAULT '', referrer TEXT NOT NULL DEFAULT '', country TEXT NOT NULL DEFAULT '', city TEXT NOT NULL DEFAULT '');
+            """)
+            columns = {row[0] for row in connection.execute("SELECT column_name FROM information_schema.columns WHERE table_name = 'plaques'").fetchall()}
+            scan_columns = {row[0] for row in connection.execute("SELECT column_name FROM information_schema.columns WHERE table_name = 'scans'").fetchall()}
+        else:
+            connection.executescript("""
+                CREATE TABLE IF NOT EXISTS plaques (code TEXT PRIMARY KEY, type TEXT NOT NULL, sale TEXT NOT NULL, date TEXT NOT NULL, client TEXT NOT NULL DEFAULT '', destination TEXT NOT NULL DEFAULT '', scans INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'free', phone TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS orders (code TEXT PRIMARY KEY, name TEXT NOT NULL, price TEXT NOT NULL, status TEXT NOT NULL, date TEXT NOT NULL, phone TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS scans (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL, scanned_at TEXT NOT NULL, user_agent TEXT NOT NULL DEFAULT '', referrer TEXT NOT NULL DEFAULT '', country TEXT NOT NULL DEFAULT '', city TEXT NOT NULL DEFAULT '');
+            """)
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(plaques)")}
+            scan_columns = {row[1] for row in connection.execute("PRAGMA table_info(scans)")}
         if "lifecycle" not in columns:
             connection.execute("ALTER TABLE plaques ADD COLUMN lifecycle TEXT NOT NULL DEFAULT 'stock'")
             connection.execute("UPDATE plaques SET lifecycle = CASE WHEN status = 'free' THEN 'stock' WHEN status = 'unpaid' THEN 'delivered_unpaid' WHEN status = 'active' THEN 'paid' ELSE 'stock' END")
         else:
             connection.execute("UPDATE plaques SET lifecycle = CASE WHEN lifecycle IN ('free', 'stock') THEN 'stock' WHEN lifecycle IN ('active', 'paid') THEN 'paid' WHEN lifecycle IN ('unpaid', 'delivered_unpaid') THEN 'delivered_unpaid' WHEN lifecycle IN ('assigned', 'disabled', 'archived') THEN lifecycle ELSE 'stock' END")
-        scan_columns = {row[1] for row in connection.execute("PRAGMA table_info(scans)")}
         for column in ("user_agent", "referrer", "country", "city"):
             if column not in scan_columns:
                 connection.execute(f"ALTER TABLE scans ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
-        if connection.execute("SELECT COUNT(*) FROM plaques").fetchone()[0] == 0:
+        if connection.execute("SELECT COUNT(*) FROM plaques").fetchone()[0] == 0 and os.environ.get("ONPOINT_SEED_DATA", "false").lower() == "true":
             now = datetime.now().isoformat(timespec="seconds")
             connection.executemany("INSERT INTO plaques (code,type,sale,date,client,destination,scans,status,phone,lifecycle,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)", [(*row[:7], "active" if row[7] in {"assigned", "paid"} else "unpaid" if row[7] == "delivered_unpaid" else "free", row[8], row[7], now) for row in SEED_PLAQUES])
-        if connection.execute("SELECT COUNT(*) FROM orders").fetchone()[0] == 0:
+        if connection.execute("SELECT COUNT(*) FROM orders").fetchone()[0] == 0 and os.environ.get("ONPOINT_SEED_DATA", "false").lower() == "true":
             connection.executemany("INSERT INTO orders (code,name,price,status,date,phone) VALUES (?,?,?,?,?,?)", [(code, name, "148 DT" if index == 5 else "59 DT", "cancelled", date, "56 680 248") for index, (code, name, date) in enumerate(zip(ORDER_CODES, ORDER_NAMES, ["29/09 13:05", "29/09 12:32", "29/09 12:31", "29/09 12:27", "29/09 12:25", "29/09 11:44", "28/09 17:10", "28/09 16:42"]))])
     backup_db("startup")
 
@@ -148,7 +196,8 @@ def login():
     if not user or not secrets.compare_digest(user["password"], str(payload.get("password", ""))):
         return jsonify({"error": "Identifiants invalides."}), 401
     session["username"] = payload["username"]
-    return jsonify({"username": payload["username"], "role": user["role"], "label": user["label"]})
+    session["csrf_token"] = secrets.token_urlsafe(32)
+    return jsonify({"username": payload["username"], "role": user["role"], "label": user["label"], "csrf_token": session["csrf_token"]})
 
 
 @app.post("/api/logout")
@@ -160,7 +209,7 @@ def logout():
 @app.get("/api/session")
 def session_info():
     user = current_user()
-    return jsonify({"authenticated": bool(user), "user": user})
+    return jsonify({"authenticated": bool(user), "user": user, "csrf_token": session.get("csrf_token")})
 
 
 @app.get("/api/dashboard")
@@ -178,6 +227,17 @@ def dashboard():
             lots.append({"type": category, "plaques": count, "active": sum(row["lifecycle"] in {"assigned", "delivered_unpaid", "paid"} for row in category_rows), "free": sum(row["lifecycle"] == "stock" for row in category_rows), "state": "Bas" if count < 10 else "OK"})
         stock = [{"type": category, "count": 167 if category == "Google" else 50 if category == "Google EN" else 18 if category == "Instagram" else 4 if category in {"Facebook", "TikTok"} else 9, "low": category in {"Facebook", "TikTok", "WiFi"}} for category in sorted(CATEGORIES)]
     return jsonify({"plaques": plaques, "orders": orders, "messages": messages[:8], "lots": lots, "metrics": metrics, "stock": stock, "user": current_user()})
+
+
+@app.post("/api/admin/reset")
+@require_role("admin")
+def reset_data():
+    backup_db("before-reset")
+    with db() as connection:
+        connection.execute("DELETE FROM scans")
+        connection.execute("DELETE FROM orders")
+        connection.execute("DELETE FROM plaques")
+    return jsonify({"ok": True, "message": "Toutes les données de démonstration ont été réinitialisées."})
 
 
 @app.get("/api/analytics")

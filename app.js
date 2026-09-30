@@ -1,9 +1,10 @@
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
-const state = { data: { plaques: [], orders: [], messages: [], lots: [], stock: [], metrics: {} }, analytics: null, user: null, selectedCode: null };
+const state = { data: { plaques: [], orders: [], messages: [], lots: [], stock: [], metrics: {} }, analytics: null, user: null, csrfToken: null, selectedCode: null };
 
 async function api(path, options = {}) {
-  const response = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...options });
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) }; if (state.csrfToken) headers['X-CSRF-Token'] = state.csrfToken;
+  const response = await fetch(path, { ...options, headers });
   const payload = await response.json();
   if (response.status === 401) { showLogin(); throw new Error('Authentification requise.'); }
   if (!response.ok) throw new Error(payload.error || 'Erreur serveur');
@@ -36,8 +37,8 @@ async function refresh() { state.data = await api('/api/dashboard'); state.analy
 async function downloadExport() { const response = await fetch('/api/export'); if (!response.ok) { showToast('Export réservé à l’administrateur.'); return; } const blob = await response.blob(); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'onpoint-export.json'; link.click(); URL.revokeObjectURL(link.href); }
 function applyRole() { $('#user-role').textContent = `${state.user.label} · ${state.user.username}`; $$('.admin-only').forEach((element) => { element.hidden = state.user.role !== 'admin'; }); }
 
-$('#login-form').addEventListener('submit', async (event) => { event.preventDefault(); $('#login-error').textContent = ''; try { state.user = await api('/api/login', { method: 'POST', body: JSON.stringify({ username: $('#login-username').value, password: $('#login-password').value }) }); hideLogin(); applyRole(); await refresh(); } catch (error) { $('#login-error').textContent = error.message; } });
-$('#logout-btn').addEventListener('click', async () => { await fetch('/api/logout', { method: 'POST' }); state.user = null; showLogin(); });
+$('#login-form').addEventListener('submit', async (event) => { event.preventDefault(); $('#login-error').textContent = ''; try { state.user = await api('/api/login', { method: 'POST', body: JSON.stringify({ username: $('#login-username').value, password: $('#login-password').value }) }); state.csrfToken = state.user.csrf_token; hideLogin(); applyRole(); await refresh(); } catch (error) { $('#login-error').textContent = error.message; } });
+$('#logout-btn').addEventListener('click', async () => { await api('/api/logout', { method: 'POST' }); state.user = null; state.csrfToken = null; showLogin(); });
 $('#export-btn').addEventListener('click', downloadExport);
 $('#analytics-days').addEventListener('change', async () => { state.analytics = await api(`/api/analytics?days=${$('#analytics-days').value}`); renderAnalytics(); });
 $$('.nav-item').forEach((button) => button.addEventListener('click', () => { $$('.nav-item').forEach((item) => item.classList.remove('active')); button.classList.add('active'); $$('.view').forEach((view) => view.classList.remove('active-view')); $(`#${button.dataset.view}-view`).classList.add('active-view'); $('#page-title').innerHTML = button.dataset.view === 'plaques' ? 'OnPoint <span>/qrcode</span>' : 'Commandes'; }));
@@ -46,4 +47,4 @@ $('#clients-btn').addEventListener('click', () => showToast('La vue clients est 
 $('#plaque-form').addEventListener('submit', async (event) => { event.preventDefault(); try { await api(`/api/plaques/${state.selectedCode}`, { method: 'PATCH', body: JSON.stringify({ destination: $('#form-destination').value, type: $('#form-category').value, lifecycle: $('#form-lifecycle').value, client: $('#form-client').value, phone: $('#form-phone').value, note: $('#form-note').value }) }); closeModal(); await refresh(); showToast('Plaque enregistrée.'); } catch (error) { showToast(error.message); } });
 $('#create-form').addEventListener('submit', async (event) => { event.preventDefault(); try { const result = await api('/api/plaques', { method: 'POST', body: JSON.stringify({ quantity: Number($('#create-quantity').value), type: $('#create-category').value }) }); closeCreateModal(); await refresh(); showToast(`${result.count} codes QR uniques créés.`); } catch (error) { showToast(error.message); } });
 
-(async () => { const sessionInfo = await fetch('/api/session').then((response) => response.json()); if (sessionInfo.authenticated) { state.user = sessionInfo.user; hideLogin(); applyRole(); await refresh(); } else showLogin(); })();
+(async () => { const sessionInfo = await fetch('/api/session').then((response) => response.json()); if (sessionInfo.authenticated) { state.user = sessionInfo.user; state.csrfToken = sessionInfo.csrf_token; hideLogin(); applyRole(); await refresh(); } else showLogin(); })();

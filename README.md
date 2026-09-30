@@ -19,6 +19,14 @@ The included `render.yaml` is configured for the service name `onpoint-qr`, whic
 
 The free Render filesystem is ephemeral, so SQLite data can be lost during a service restart or redeploy. For production data, attach a managed Postgres database and move backups to durable object storage before relying on the public deployment.
 
+## Production configuration
+
+Set `DATABASE_URL` to the Render Postgres connection string. The app uses PostgreSQL whenever that variable is present and keeps SQLite only for local development. Set `ONPOINT_SEED_DATA=false` for a clean trial database; the admin reset endpoint is `POST /api/admin/reset`.
+
+For durable backups, configure `BACKUP_BUCKET`, `BACKUP_ENDPOINT_URL`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY` for S3, Cloudflare R2, or another S3-compatible service. Backups are uploaded before writes and resets.
+
+Set `ONPOINT_ADMIN_PASSWORD`, `ONPOINT_SALES_PASSWORD`, and `ONPOINT_VIEWER_PASSWORD` in Render before sharing the public URL. Add a custom domain in Render under the service settings, then point its DNS CNAME to the Render-provided hostname.
+
 ## Dynamic features
 
 - Plaques, orders, messages, metrics, lots, and stock load from SQLite through `/api/dashboard`.

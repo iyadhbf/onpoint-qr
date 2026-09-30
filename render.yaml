@@ -7,7 +7,23 @@ services:
     startCommand: gunicorn --workers 1 --threads 4 --timeout 120 --bind 0.0.0.0:$PORT server:app
     healthCheckPath: /
     envVars:
+      - key: DATABASE_URL
+        sync: false
       - key: ONPOINT_SECRET_KEY
         generateValue: true
+      - key: ONPOINT_ADMIN_PASSWORD
+        sync: false
+      - key: ONPOINT_SALES_PASSWORD
+        sync: false
+      - key: ONPOINT_VIEWER_PASSWORD
+        sync: false
+      - key: BACKUP_BUCKET
+        sync: false
+      - key: BACKUP_ENDPOINT_URL
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
       - key: PYTHON_VERSION
         value: 3.12.0
