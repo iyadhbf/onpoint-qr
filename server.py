@@ -23,6 +23,7 @@ app = Flask(__name__, static_folder=str(ROOT), static_url_path="")
 app.secret_key = os.environ.get("ONPOINT_SECRET_KEY", secrets.token_hex(32))
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax", SESSION_COOKIE_SECURE=bool(os.environ.get("RENDER") or os.environ.get("DATABASE_URL")))
 RATE_BUCKET = {}
+DATABASE_READY = False
 
 USERS = {
     "admin": {"password": os.environ.get("ONPOINT_ADMIN_PASSWORD", "onpoint-admin"), "role": "admin", "label": "Administrateur"},
@@ -33,6 +34,14 @@ ROLE_LEVEL = {"viewer": 1, "sales": 2, "admin": 3}
 CATEGORIES = {"Google", "Google EN", "Instagram", "Facebook", "TikTok", "WiFi"}
 LIFECYCLES = {"stock", "assigned", "delivered_unpaid", "paid", "disabled", "archived"}
 LIFECYCLE_LABELS = {"stock": "En stock", "assigned": "Attribuee", "delivered_unpaid": "Livree, non payee", "paid": "Payee", "disabled": "Desactivee", "archived": "Archivee", "free": "En stock", "active": "Payee", "unpaid": "Livree, non payee"}
+
+
+@app.before_request
+def ensure_database():
+    global DATABASE_READY
+    if not DATABASE_READY:
+        init_db()
+        DATABASE_READY = True
 
 
 @app.before_request
@@ -435,7 +444,6 @@ def static_files(path):
     return send_from_directory(ROOT, path)
 
 
-init_db()
-
 if __name__ == "__main__":
+    init_db()
     app.run(host=os.environ.get("HOST", "127.0.0.1"), port=int(os.environ.get("PORT", "4173")), debug=False)

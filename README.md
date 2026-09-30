@@ -19,6 +19,10 @@ The included `render.yaml` is configured for the service name `onpoint-qr`, whic
 
 The free Render filesystem is ephemeral, so SQLite data can be lost during a service restart or redeploy. For production data, attach a managed Postgres database and move backups to durable object storage before relying on the public deployment.
 
+## Vercel deployment
+
+The `api/index.py` serverless entrypoint and `vercel.json` are included for Vercel. Import this GitHub repository in Vercel, set `DATABASE_URL` to a hosted PostgreSQL connection string, set the `ONPOINT_*_PASSWORD` and `ONPOINT_SECRET_KEY` variables, then deploy. Do not use SQLite on Vercel because its filesystem is temporary.
+
 ## Production configuration
 
 Set `DATABASE_URL` to the Render Postgres connection string. The app uses PostgreSQL whenever that variable is present and keeps SQLite only for local development. Set `ONPOINT_SEED_DATA=false` for a clean trial database; the admin reset endpoint is `POST /api/admin/reset`.
