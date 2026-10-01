@@ -5,9 +5,10 @@ const state = { data: { plaques: [], orders: [], messages: [], lots: [], stock: 
 async function api(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) }; if (state.csrfToken) headers['X-CSRF-Token'] = state.csrfToken;
   const response = await fetch(path, { ...options, headers });
-  const payload = await response.json();
+  const contentType = response.headers.get('content-type') || '';
+  const payload = contentType.includes('application/json') ? await response.json() : { error: 'Le serveur ne renvoie pas de JSON.' };
   if (response.status === 401) { showLogin(); throw new Error('Authentification requise.'); }
-  if (!response.ok) throw new Error(payload.error || 'Erreur serveur');
+  if (!response.ok) throw new Error(payload.error || `Erreur serveur (${response.status})`);
   return payload;
 }
 function saleClass(sale) { return sale.includes('non') ? 'amber' : sale.includes('Vendue') || sale.includes('Payee') ? 'green' : 'gray'; }
@@ -33,7 +34,7 @@ function openModal(plaque) { state.selectedCode = plaque.code; $('#modal-title')
 function closeModal() { $('#modal-backdrop').hidden = true; }
 function closeCreateModal() { $('#create-backdrop').hidden = true; }
 
-async function refresh() { state.data = await api('/api/dashboard'); state.analytics = await api(`/api/analytics?days=${$('#analytics-days').value}`); renderMetrics(); renderPlaques(); renderMessages(); renderLots(); renderOrders(); renderStock(); renderAnalytics(); }
+async function refresh() { try { state.data = await api('/api/dashboard'); state.analytics = await api(`/api/analytics?days=${$('#analytics-days').value}`); renderMetrics(); renderPlaques(); renderMessages(); renderLots(); renderOrders(); renderStock(); renderAnalytics(); } catch (error) { showToast(`${error.message} Vérifiez DATABASE_URL dans l'hébergement.`); } }
 async function downloadExport() { const response = await fetch('/api/export'); if (!response.ok) { showToast('Export réservé à l’administrateur.'); return; } const blob = await response.blob(); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'onpoint-export.json'; link.click(); URL.revokeObjectURL(link.href); }
 function applyRole() { $('#user-role').textContent = `${state.user.label} · ${state.user.username}`; $$('.admin-only').forEach((element) => { element.hidden = state.user.role !== 'admin'; }); }
 

@@ -66,6 +66,14 @@ def security_headers(response):
     response.headers.setdefault("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'")
     return response
 
+
+@app.errorhandler(Exception)
+def api_exception(error):
+    if request.path.startswith("/api/"):
+        app.logger.exception("API request failed")
+        return jsonify({"error": "API indisponible. Vérifiez la connexion PostgreSQL DATABASE_URL."}), 503
+    raise error
+
 SEED_PLAQUES = [
     ("28XK", "Google", "Livree, non payee", "16/09/2026", "maison sucre", "https://search.google.com/local/writereview?placeid=demo-28xk", 13, "delivered_unpaid", ""),
     ("2BGK", "Google", "Vendue", "16/09/2026", "la tavola", "https://search.google.com/local/writereview?placeid=demo-2bgk", 6, "paid", "+216 22 410 884"),
