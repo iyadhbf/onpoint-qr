@@ -1,0 +1,10 @@
+.env*
+.git/
+.vercel/
+.venv/
+__pycache__/
+*.pyc
+ag_consulting.sqlite3
+backups/
+.freebuff/
+api/

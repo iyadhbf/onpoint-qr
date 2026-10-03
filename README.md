@@ -21,7 +21,13 @@ The free Render filesystem is ephemeral, so SQLite data can be lost during a ser
 
 ## Vercel deployment
 
-The `api/index.py` serverless entrypoint and `vercel.json` are included for Vercel. Import this GitHub repository in Vercel, set `DATABASE_URL` to a hosted PostgreSQL connection string, set the `ONPOINT_*_PASSWORD` and `ONPOINT_SECRET_KEY` variables, then deploy. Do not use SQLite on Vercel because its filesystem is temporary.
+Vercel detects the Flask app exported by `server.py`. Front-end files live in `public/` so Vercel can serve them from its CDN. Configure these Production environment variables before deploying:
+
+- `DATABASE_URL`: a Neon PostgreSQL connection string (use the pooled connection string for serverless traffic).
+- `ONPOINT_SECRET_KEY`: a random secret with at least 32 characters.
+- `ONPOINT_ADMIN_PASSWORD`, `ONPOINT_SALES_PASSWORD`, and `ONPOINT_VIEWER_PASSWORD`: unique passwords for the three roles.
+
+The app returns a configuration error instead of starting with SQLite or the local demonstration passwords if any required value is missing. Do not use SQLite on Vercel because its filesystem is temporary. Set `ONPOINT_SEED_DATA=true` only if the demonstration records are wanted in a new empty database.
 
 ## Production configuration
 

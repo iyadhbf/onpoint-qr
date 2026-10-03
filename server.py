@@ -17,9 +17,10 @@ from flask import Flask, jsonify, redirect, request, send_file, send_from_direct
 from database import USING_POSTGRES, open_database
 
 ROOT = Path(__file__).parent
+PUBLIC_DIR = ROOT / "public"
 DB_PATH = ROOT / "ag_consulting.sqlite3"
 BACKUP_DIR = ROOT / "backups"
-app = Flask(__name__, static_folder=str(ROOT), static_url_path="")
+app = Flask(__name__, static_folder=None)
 app.secret_key = os.environ.get("ONPOINT_SECRET_KEY", secrets.token_hex(32))
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax", SESSION_COOKIE_SECURE=bool(os.environ.get("RENDER") or os.environ.get("DATABASE_URL")))
 RATE_BUCKET = {}
@@ -34,6 +35,25 @@ ROLE_LEVEL = {"viewer": 1, "sales": 2, "admin": 3}
 CATEGORIES = {"Google", "Google EN", "Instagram", "Facebook", "TikTok", "WiFi"}
 LIFECYCLES = {"stock", "assigned", "delivered_unpaid", "paid", "disabled", "archived"}
 LIFECYCLE_LABELS = {"stock": "En stock", "assigned": "Attribuee", "delivered_unpaid": "Livree, non payee", "paid": "Payee", "disabled": "Desactivee", "archived": "Archivee", "free": "En stock", "active": "Payee", "unpaid": "Livree, non payee"}
+
+
+@app.before_request
+def ensure_production_configuration():
+    if not os.environ.get("VERCEL"):
+        return None
+
+    required = {
+        "DATABASE_URL": USING_POSTGRES,
+        "ONPOINT_SECRET_KEY": len(os.environ.get("ONPOINT_SECRET_KEY", "")) >= 32,
+        "ONPOINT_ADMIN_PASSWORD": bool(os.environ.get("ONPOINT_ADMIN_PASSWORD", "").strip()) and os.environ.get("ONPOINT_ADMIN_PASSWORD") != "onpoint-admin",
+        "ONPOINT_SALES_PASSWORD": bool(os.environ.get("ONPOINT_SALES_PASSWORD", "").strip()) and os.environ.get("ONPOINT_SALES_PASSWORD") != "onpoint-sales",
+        "ONPOINT_VIEWER_PASSWORD": bool(os.environ.get("ONPOINT_VIEWER_PASSWORD", "").strip()) and os.environ.get("ONPOINT_VIEWER_PASSWORD") != "onpoint-viewer",
+    }
+    missing = [name for name, configured in required.items() if not configured]
+    if missing:
+        app.logger.error("Vercel production configuration is incomplete: %s", ", ".join(missing))
+        return jsonify({"error": "Application production configuration is incomplete."}), 503
+    return None
 
 
 @app.before_request
@@ -203,7 +223,7 @@ def plaque_dict(row):
 
 @app.get("/")
 def index():
-    return send_from_directory(ROOT, "index.html")
+    return send_from_directory(PUBLIC_DIR, "index.html")
 
 
 @app.post("/api/login")
@@ -449,7 +469,7 @@ def scan(code):
 
 @app.get("/<path:path>")
 def static_files(path):
-    return send_from_directory(ROOT, path)
+    return send_from_directory(PUBLIC_DIR, path)
 
 
 if __name__ == "__main__":
