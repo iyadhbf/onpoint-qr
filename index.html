@@ -17,8 +17,8 @@
       <div class="brand-lockup"><span class="onpoint-symbol"><i></i></span><span class="brand-word">OnPoint<span>.</span></span></div>
       <div class="brand-subtitle">QR OPERATIONS <code>/qrcode</code></div>
       <nav class="side-nav" aria-label="Navigation principale">
-        <button class="nav-item active" data-view="plaques"><span class="nav-icon">⌁</span>Plaques <span class="nav-count">339</span></button>
-        <button class="nav-item" data-view="commandes"><span class="nav-icon">▤</span>Commandes <span class="nav-count">8</span></button>
+        <button class="nav-item active" data-view="plaques"><span class="nav-icon">⌁</span>Plaques <span class="nav-count">0</span></button>
+        <button class="nav-item" data-view="commandes"><span class="nav-icon">▤</span>Commandes <span class="nav-count">0</span></button>
       </nav>
       <div class="sidebar-footer"><span class="status-dot"></span>Instance locale<br><small>Copie indépendante</small></div>
     </aside>
@@ -34,9 +34,9 @@
 
       <section id="plaques-view" class="view active-view">
         <div class="metric-strip">
-          <div class="metric-card"><span>Actives</span><strong>87</strong><small>plaques en circulation</small></div>
-          <div class="metric-card"><span>Libres</span><strong>252</strong><small>prêtes à attribuer</small></div>
-          <div class="metric-card accent"><span>Scans cumulés</span><strong>1 020</strong><small>depuis la mise en service</small></div>
+          <div class="metric-card"><span>Actives</span><strong>0</strong><small>en attente des données</small></div>
+          <div class="metric-card"><span>Libres</span><strong>0</strong><small>en attente des données</small></div>
+          <div class="metric-card accent"><span>Scans cumulés</span><strong>0</strong><small>en attente des données</small></div>
         </div>
 
         <div class="section-heading"><div><p class="eyebrow">INVENTAIRE</p><h2>Gestion des plaques</h2></div><button class="primary-btn" id="create-btn"><span>＋</span> Créer des plaques</button></div>
@@ -49,7 +49,7 @@
         <div class="table-wrap"><table><thead><tr><th><input type="checkbox" aria-label="Sélectionner tout" /></th><th>Code</th><th>Type</th><th>Vente</th><th>Depuis le</th><th>Client</th><th>Destination</th><th>Scans</th><th></th></tr></thead><tbody id="plaque-body"></tbody></table></div>
 
         <div class="lower-grid">
-          <section class="panel"><div class="panel-heading"><div><p class="eyebrow">ACTIVITÉ</p><h2>Messages du mois</h2></div><button class="text-btn" id="due-btn">Voir les échéances</button></div><div class="notice" id="message-notice">4 clients sans numéro WhatsApp. Ajoutez le numéro dans la fiche de la plaque.</div><table class="compact-table"><thead><tr><th>Client</th><th>Code</th><th>Ce mois</th><th>Total</th><th>Dernier envoi</th></tr></thead><tbody id="message-body"></tbody></table></section>
+          <section class="panel"><div class="panel-heading"><div><p class="eyebrow">ACTIVITÉ</p><h2>Messages du mois</h2></div><button class="text-btn" id="due-btn">Voir les échéances</button></div><div class="notice" id="message-notice">Les données apparaîtront après la connexion à la base de données.</div><table class="compact-table"><thead><tr><th>Client</th><th>Code</th><th>Ce mois</th><th>Total</th><th>Dernier envoi</th></tr></thead><tbody id="message-body"></tbody></table></section>
           <section class="panel"><div class="panel-heading"><div><p class="eyebrow">PRODUCTION</p><h2>Lots</h2></div><span class="soft-label">6 catégories</span></div><table class="compact-table"><thead><tr><th>Type</th><th>Plaques</th><th>Actives</th><th>Libres</th><th>État</th></tr></thead><tbody id="lot-body"></tbody></table></section>
         </div>
         <section class="panel analytics-panel"><div class="panel-heading"><div><p class="eyebrow">MESURE</p><h2>Analytics des scans</h2></div><select id="analytics-days" class="analytics-select"><option value="7">7 jours</option><option value="30" selected>30 jours</option><option value="90">90 jours</option></select></div><div class="analytics-summary"><strong id="analytics-total">0</strong><span>scans sur la période</span></div><div id="analytics-bars" class="analytics-bars"></div><div id="analytics-breakdown" class="analytics-breakdown"></div></section>
